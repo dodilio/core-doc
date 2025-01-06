@@ -1,6 +1,6 @@
-# Data Flow
+#  Flow
 ## Overview
-The concept of data flow in this context refers to creating a step-by-step workflow or “flow” that orchestrates the collection/mutation of all necessary data for a higher-level entity. 
+The concept of data flow in this context refers to creating a step-by-step workflow or “flow” that orchestrates the collection/mutation of all necessary data for a higher-level entity.
 this approach is useful in collecting complex data from LLMs or structured migrations
 Let us take an example, while creating an order, you might need to collect:
 1.	Basic order information (e.g. status, total amount).
@@ -19,11 +19,11 @@ This modular system can significantly reduce complexity in large-scale data coll
 1.	Schema
       Defines a data model in Dodil, including validation rules (e.g., required fields, allowed enums).
 2.	Flow Steps (flowStep)
-A single step referencing a schema and describing how data is collected (e.g., one-to-many relationship).
+      A single step referencing a schema and describing how data is collected (e.g., one-to-many relationship).
 3.	Flow (dodil.flow)
-Combines multiple flow steps into a high-level data collection process for your entire entity (e.g., an Order).
+      Combines multiple flow steps into a high-level data collection process for your entire entity (e.g., an Order).
 4.	Compositor
-A runtime object that tracks which step the user/LLM is on, what data has been collected, and whether the flow is complete.
+      A runtime object that tracks which step the user/LLM is on, what data has been collected, and whether the flow is complete.
 
 
 ## Composing the Data Flow
@@ -93,7 +93,9 @@ const dodilDeliveryAddress = dodil.schema('DELIVERY_ADDRESS', {
 ```
 
 
-## Defining A Flow
+## Example with LLMs
+
+### lets define the flow
 ```JavaScript
 const { schema, compose, flow } = require('@dodil');
 
@@ -106,25 +108,42 @@ const { schema, compose, flow } = require('@dodil');
 @flow.class()
 class orderAcqusitionFlow {
       constructor() {
-         this.orderCompose = new compose();
+      // Composite Schema
+         const orderComposite = compose(dodilOrder, {
+            items: { from: dodilOrderItems, relation: 'many', minItems: 1 },
+            deliverAddress: { from: dodilDeliveryAddress, relation: 'one', required: true },
+            payment: { from : dodilPayment, relation: 'one', required: true }
+         })
+         this.orderCompose = new orderComposite();
       }
       
       async load(cacheId) {
-         await this.orderCompose.loadCache(cacheId)
+         await this.orderCompose.loadFromChache(cacheId)
       }
      
-      // middleware to handle input and redirect it to stage 
-      @flow.input()
-      async add(input) {
-         return this.currentStage(input);
+      // a router middle where 
+      // main concept is to help 
+      @flow.router('route')
+      async determineStage(input) {
+         if(!this.orderCompose.isSatisfied('items'));
+            this.routeTo(this.addItems);
+         else if(!this.orderCompose.isSatisfied('deliveryAddress'))
+            this.routeTo(this.addDeliveryAdress);
+         else if (!this.orderCompose.isSatisfied('payment'))
+            this.routeTo(this.addPayment);
       }
       
-      @flow.sequance.start()
+      @flow.input()
+      async add(inputData) {
+         return this.currentStage(inputData);
+      }
+      
+      @flow.sequance.defaultStart()
       async addItems(data) {
         const i = dodilOrderItem(data);
         this.orderCompose.add('items', i);
         return this.orderCompose.length >= 1 && 
-                  this.orderCompose.isSatified('items');
+                  this.orderCompose.isSatisfied('items');
       }
       
       
@@ -132,14 +151,14 @@ class orderAcqusitionFlow {
       async addDeliveryAdress(data) {
         const address = dodilAddress(data);
         this.orderCompose.add('deliveryAddress', address);
-        return this.orderCompose.isSatified('deliveryAddress');
+        return this.orderCompose.isSatisfied('deliveryAddress');
       }
       
       @flow.sequance.startOn(addDeliveryAdress)
       addPayment(data) {
         const payment = dodilPayment(data);
         this.orderCompose.add('payment', payment);
-        return this.orderCompose.isSatified('payment');
+        return this.orderCompose.isSatisfied('payment');
       }
       
       @flow.sequance.finishOn(addDeliveryAdress)
@@ -149,15 +168,24 @@ class orderAcqusitionFlow {
 }
 ```
 
-## Example with LLMs
+### lets consume the flow
 ```JavaScript
 // assuming you created an LLM 
 // Detect intent -> this person want to create order by adding cart..etc
 function handleCartChange(chatID, inputData) {
   const orderFlow = orderAcqusitionFlow();
-  await orderFlow.laod(chatID);
-  await orderFlow.start();
+  await orderFlow.laod(chatID); // to load the composite cached data 
+  
+  // to determine the current need based on the compite data satisfaction
+  await orderFlow.route(); 
+  // to ensure we activated the flow after adjusting the pointer via the router
+  await orderFlow.start(); 
+  
+  // Note: 
+  // - uses the default flow.input acquired by the decorator
+  // - validation: if the stage is items and the user added data for the delivery address it will fail
   await orderFlow.input(inputData); 
+  
   // flow class have default 
   if (orderFlow.isCompleted()) {
      return {
@@ -180,6 +208,9 @@ function handleCartChange(chatID, inputData) {
 ```
 
 #### Example using flow to Migrate your Data
+
+Another use case on how to use the compose and flow feature would be below used in migrating data
+
 ```JavaScript
 const { schema, compose, flow, datasource } = require('@dodil');
 
