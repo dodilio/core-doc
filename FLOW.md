@@ -97,7 +97,7 @@ const dodilDeliveryAddress = dodil.schema('DELIVERY_ADDRESS', {
 ```JavaScript
 const { schema, compose, flow } = require('@dodil');
 
-// flow class extends core functions to the class
+// flow class decorator extends core functions to the class
 // Example:
 // .input() -> a polymorphic function to input data from the current stage 
 // .isCompleted() -> indicate the flow is complete
@@ -152,7 +152,7 @@ class orderAcqusitionFlow {
 ## Example with LLMs
 ```JavaScript
 // assuming you created an LLM 
-// Detect intent -> this person want to create
+// Detect intent -> this person want to create order by adding cart..etc
 function handleCartChange(chatID, inputData) {
   const orderFlow = orderAcqusitionFlow();
   await orderFlow.laod(chatID);
@@ -167,9 +167,8 @@ function handleCartChange(chatID, inputData) {
      };
   }
   else {
-      // use allMissing() to get all missing fields in all steps
-      await orderFlow.cache();
-      const missingFields = compositor.currentlyMissing();
+      await orderFlow.orderCompose.cache(); // to temporary save the compose body
+      const missingFields = compositor.currentlyMissing();  // use allMissing() to get all missing fields in all steps
       return {
             status: "in-progress",
             message: `We still need more information for step: ${currentStep.step}`,
@@ -208,18 +207,19 @@ const sourceOrder = dodil.schema({
 class DataMigrationFlow {
   constructor () {
       this.sourceId = null;
-      this.batch = 1000;
-      this.currentBatch = 1;
+      this.batchSize = 1000;
+      this.currentBatch = 0;
       
   }
   
   @flow.sequence.start()
   async initializeMigration(sourceId) {
     this.sourceId = sourceId;
-    await this.loadSourceData(sourceId);
+    return true
   }
   
-  @flow.sequence.start(migrateRecords)
+  @flow.sequence.startOn(initializeMigration) // when intialized migration
+  @flow.sequence.startOn(migrateRecords) // when migrateRecords is completed
   async loadSourceData(sourceId) {
      /**
       {
@@ -241,7 +241,9 @@ class DataMigrationFlow {
         },
       },
      */
-    const records = await this.sourceOrder.find().batch(this.batch);
+    const offset = this.batchSize *  this.currentBack
+    this.batch++;
+    const records = await this.sourceOrder.find().batch(this.batch).offset(offset);
     if(records.length > 0) {
       return records;
     }
