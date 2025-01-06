@@ -163,7 +163,7 @@ class orderAcqusitionFlow {
       
       @flow.sequance.finishOn(addDeliveryAdress)
       async store() {
-        await this.orderCompose.await
+        await this.orderCompose.save()
       }
 }
 ```
